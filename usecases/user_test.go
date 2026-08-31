@@ -6,6 +6,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGetUserByID(t *testing.T) {
+func TestSuccessCase(t *testing.T) {
 	assert.Equal(t, 1, 1)
+}
+
+func TestFailedCase(t *testing.T) {
+	assert.Equal(t, 1, 2)
 }
