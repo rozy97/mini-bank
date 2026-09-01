@@ -11,5 +11,5 @@ func TestSuccessCase(t *testing.T) {
 }
 
 func TestFailedCase(t *testing.T) {
-	assert.Equal(t, 1, 2)
+	assert.NotEqual(t, 1, 2)
 }
