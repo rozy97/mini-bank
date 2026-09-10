@@ -28,15 +28,11 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/rozy97/mini-bank/app"
 	"github.com/rozy97/mini-bank/config"
 	_ "github.com/rozy97/mini-bank/docs"
-	"github.com/rozy97/mini-bank/handler"
 	"github.com/rozy97/mini-bank/pkg/logging"
-	"github.com/rozy97/mini-bank/pkg/password"
 	"github.com/rozy97/mini-bank/pkg/telemetry"
-	"github.com/rozy97/mini-bank/pkg/token"
-	"github.com/rozy97/mini-bank/repositories"
-	"github.com/rozy97/mini-bank/usecases"
 )
 
 const version = "1.0.0"
@@ -91,7 +87,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := buildRouter(db, cfg)
+	router := app.NewRouter(db, cfg)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -125,26 +121,4 @@ func main() {
 	}
 
 	slog.Info("server exited gracefully")
-}
-
-func buildRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
-	txManager := repositories.NewTxManager(db)
-	userRepo := repositories.NewUserRepository(db)
-	accountRepo := repositories.NewAccountRepository(db)
-	transferRepo := repositories.NewTransferRepository(db)
-	entryRepo := repositories.NewEntryRepository(db)
-	idempotencyRepo := repositories.NewIdempotencyRepository(db)
-
-	hasher := password.NewBcryptHasher()
-	tokenManager := token.NewJWTManager(cfg.JWT.Secret, cfg.JWT.TTL)
-
-	authUC := usecases.NewAuthUsecase(userRepo, accountRepo, txManager, hasher, tokenManager)
-	accountUC := usecases.NewAccountUsecase(accountRepo, entryRepo)
-	transferUC := usecases.NewTransferUsecase(accountRepo, transferRepo, entryRepo, idempotencyRepo, txManager)
-
-	return handler.NewRouter(handler.Handlers{
-		Auth:     handler.NewAuthHandler(authUC),
-		Account:  handler.NewAccountHandler(accountUC),
-		Transfer: handler.NewTransferHandler(transferUC),
-	}, tokenManager, cfg.OTel.ServiceName)
 }

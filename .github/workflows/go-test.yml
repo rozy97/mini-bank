@@ -23,3 +23,26 @@ jobs:
 
       - name: Run tests
         run: go test ./...
+
+  integration-test:
+    name: Go Integration Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      # testcontainers-go pulls the Postgres image itself and talks to the
+      # Docker daemon already present on GitHub-hosted runners — no
+      # services: block needed.
+      - name: Run integration tests
+        run: go test -tags=integration ./test/integration/... -race -v -timeout 5m
