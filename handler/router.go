@@ -22,7 +22,11 @@ func NewRouter(h Handlers, tokenVerifier TokenVerifier) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	// /swagger/*any serves the raw OpenAPI spec (doc.json) and swaggo's
+	// default UI. /docs is a custom UI that auto-authorizes from /auth/login
+	// responses; see docs_page.go.
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	r.GET("/docs", DocsPage)
 
 	v1 := r.Group("/api/v1")
 

@@ -52,7 +52,7 @@ docker compose up --build
 
 This starts Postgres (with `migrations/` mounted into `/docker-entrypoint-initdb.d`, so the schema applies automatically on first boot) and the API on `http://localhost:8080`.
 
-Swagger UI: `http://localhost:8080/swagger/index.html`
+API docs: `http://localhost:8080/docs` — try `POST /auth/login`, and its `access_token` is fed straight into the Authorize dialog, so the following calls (`GET /accounts/me/balance`, `POST /transfers`, ...) are authorized automatically with no copy/pasting. (The raw OpenAPI spec is also served at `/swagger/doc.json`, and swaggo's own UI at `/swagger/index.html`, without the auto-login behavior.)
 Health check: `GET /healthz`
 
 ### Local development (without Docker)
