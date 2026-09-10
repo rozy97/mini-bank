@@ -1,0 +1,25 @@
+// Package password hashes and verifies user passwords with bcrypt.
+package password
+
+import "golang.org/x/crypto/bcrypt"
+
+type BcryptHasher struct {
+	cost int
+}
+
+func NewBcryptHasher() *BcryptHasher {
+	return &BcryptHasher{cost: bcrypt.DefaultCost}
+}
+
+func (h *BcryptHasher) Hash(password string) (string, error) {
+	b, err := bcrypt.GenerateFromPassword([]byte(password), h.cost)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// Compare returns a non-nil error when password does not match hash.
+func (h *BcryptHasher) Compare(hash, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+}
