@@ -1,0 +1,347 @@
+basePath: /api/v1
+definitions:
+  handler.balanceResponse:
+    properties:
+      account_id:
+        type: integer
+      balance:
+        type: integer
+      currency:
+        type: string
+    type: object
+  handler.envelope:
+    properties:
+      data: {}
+      error:
+        $ref: '#/definitions/handler.errorBody'
+      meta: {}
+      success:
+        type: boolean
+    type: object
+  handler.errorBody:
+    properties:
+      code:
+        type: string
+      message:
+        type: string
+    type: object
+  handler.historyEntryResponse:
+    properties:
+      amount:
+        type: integer
+      balance_after:
+        type: integer
+      created_at:
+        type: string
+      id:
+        type: integer
+      transfer_id:
+        type: integer
+    type: object
+  handler.loginRequest:
+    properties:
+      email:
+        example: jane@example.com
+        type: string
+      password:
+        example: strongpassword123
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  handler.loginResponse:
+    properties:
+      access_token:
+        type: string
+      expires_at:
+        type: string
+      token_type:
+        type: string
+    type: object
+  handler.paginationMeta:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total_items:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  handler.registerRequest:
+    properties:
+      email:
+        example: jane@example.com
+        type: string
+      name:
+        example: Jane Doe
+        maxLength: 100
+        minLength: 2
+        type: string
+      password:
+        example: strongpassword123
+        minLength: 8
+        type: string
+    required:
+    - email
+    - name
+    - password
+    type: object
+  handler.registerResponse:
+    properties:
+      account_id:
+        type: integer
+      balance:
+        type: integer
+      currency:
+        type: string
+      email:
+        type: string
+      name:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  handler.transferRequest:
+    properties:
+      amount:
+        example: 100000
+        type: integer
+      description:
+        example: Dinner split
+        maxLength: 255
+        type: string
+      to_account_id:
+        example: 2
+        type: integer
+    required:
+    - amount
+    - to_account_id
+    type: object
+  handler.transferResponse:
+    properties:
+      amount:
+        type: integer
+      created_at:
+        type: string
+      description:
+        type: string
+      from_account_id:
+        type: integer
+      to_account_id:
+        type: integer
+      transfer_id:
+        type: integer
+    type: object
+info:
+  contact: {}
+  description: Internal funds transfer API demonstrating clean architecture with Gin,
+    Postgres, and idempotent transfers.
+  title: Mini Bank API
+  version: "1.0"
+paths:
+  /accounts/me/balance:
+    get:
+      description: Returns the authenticated user's account balance.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.balanceResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.envelope'
+      security:
+      - BearerAuth: []
+      summary: Get current balance
+      tags:
+      - accounts
+  /accounts/me/history:
+    get:
+      description: Returns the authenticated user's ledger entries, newest first.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page, max 100 (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.envelope'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/handler.historyEntryResponse'
+                  type: array
+                meta:
+                  $ref: '#/definitions/handler.paginationMeta'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.envelope'
+      security:
+      - BearerAuth: []
+      summary: Get paginated balance history
+      tags:
+      - accounts
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user and returns a bearer token.
+      parameters:
+      - description: Credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.loginResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.envelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.envelope'
+      summary: Log in
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Creates a user and an account prepopulated with an initial balance
+        of 10,000,000 IDR.
+      parameters:
+      - description: Registration details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.registerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.registerResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.envelope'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handler.envelope'
+      summary: Register a new user
+      tags:
+      - auth
+  /transfers:
+    post:
+      consumes:
+      - application/json
+      description: Moves funds from the authenticated user's account to another account.
+        Requires an Idempotency-Key header; retrying the same key with the same body
+        is safe and returns the original result.
+      parameters:
+      - description: Client-generated key unique per transfer attempt
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: Transfer details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.transferRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.transferResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.envelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.envelope'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handler.envelope'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/handler.envelope'
+      security:
+      - BearerAuth: []
+      summary: Transfer funds
+      tags:
+      - transfers
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and the JWT returned by /auth/login.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
