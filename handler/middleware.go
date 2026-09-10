@@ -19,15 +19,17 @@ const userIDContextKey = "user_id"
 
 func AuthMiddleware(verifier TokenVerifier) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		const prefix = "Bearer "
-		header := c.GetHeader("Authorization")
-		if !strings.HasPrefix(header, prefix) {
+		scheme, token, found := strings.Cut(c.GetHeader("Authorization"), " ")
+		// The auth-scheme token is case-insensitive per RFC 7235 ss 2.1;
+		// clients like curl or Swagger's UI commonly send "bearer" in
+		// lowercase, so this must not do a case-sensitive prefix match.
+		if !found || !strings.EqualFold(scheme, "Bearer") || token == "" {
 			fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing or invalid authorization header")
 			c.Abort()
 			return
 		}
 
-		userID, err := verifier.Verify(strings.TrimPrefix(header, prefix))
+		userID, err := verifier.Verify(token)
 		if err != nil {
 			fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "invalid or expired token")
 			c.Abort()
