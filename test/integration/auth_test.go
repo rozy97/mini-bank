@@ -5,6 +5,7 @@ package integration_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,6 +44,16 @@ func TestAuth_LoginWrongPassword(t *testing.T) {
 	}, nil)
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	assert.Equal(t, "INVALID_CREDENTIALS", body.Error.Code)
+}
+
+func TestAuth_RegisterPasswordTooLong(t *testing.T) {
+	// bcrypt refuses passwords over 72 bytes; this must surface as a clean
+	// 400 (client's fault), not a 500 (implying a server fault).
+	resp, body := doRequest(t, http.MethodPost, "/api/v1/auth/register", "", map[string]any{
+		"name": "Too Long", "email": uniqueEmail("toolong"), "password": strings.Repeat("a", 100),
+	}, nil)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Equal(t, "INVALID_REQUEST", body.Error.Code)
 }
 
 func TestAuth_BalanceRequiresAuthentication(t *testing.T) {

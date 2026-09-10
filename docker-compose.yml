@@ -28,7 +28,13 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      APP_ENV: ${APP_ENV:-production}
+      # Deliberately not ${APP_ENV:-production}: this is the containerized
+      # deployment, so it must always run in release mode regardless of
+      # whatever APP_ENV a developer's local .env happens to set for `make
+      # run` — docker compose auto-loads that same .env for its own
+      # variable substitution, so a bare fallback here would silently
+      # inherit "development" from it.
+      APP_ENV: production
       PORT: ${PORT:-8080}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DB_HOST: postgres
@@ -53,6 +59,13 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
+    environment:
+      # Our config is intentionally read-only (defense in depth — nginx
+      # doesn't need write access to it), which makes the image's own
+      # docker-entrypoint.d scripts log an expected "can not modify
+      # default.conf (read-only file system?)" info line on every start;
+      # this is the image's own documented way to quiet that noise.
+      NGINX_ENTRYPOINT_QUIET_LOGS: "1"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     ports:

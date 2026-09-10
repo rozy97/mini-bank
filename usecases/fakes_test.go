@@ -335,3 +335,23 @@ func (f fakeTokenManager) Generate(userID int64, email string) (string, time.Tim
 	}
 	return fmt.Sprintf("token-for-%d", userID), time.Now().Add(time.Hour), nil
 }
+
+// fakePasswordHasher lets tests force a hashing failure that isn't bcrypt's
+// specific ErrPasswordTooLong, to exercise the generic-error fallback path.
+type fakePasswordHasher struct {
+	hashErr error
+}
+
+func (f fakePasswordHasher) Hash(password string) (string, error) {
+	if f.hashErr != nil {
+		return "", f.hashErr
+	}
+	return "hashed:" + password, nil
+}
+
+func (f fakePasswordHasher) Compare(hash, password string) error {
+	if hash != "hashed:"+password {
+		return errBoom
+	}
+	return nil
+}
