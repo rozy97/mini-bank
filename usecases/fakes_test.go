@@ -3,6 +3,7 @@ package usecases_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -16,6 +17,10 @@ import (
 // return, since usecases detect "not found" via errors.Is(err, sql.ErrNoRows).
 var errNotFound = sql.ErrNoRows
 
+// errBoom is an arbitrary, non-sentinel failure used to exercise the plain
+// error-passthrough branches (as opposed to the "not found" branches).
+var errBoom = errors.New("boom")
+
 // fakeTxManager just runs fn against the same context: the usecase tests
 // don't need real transactional isolation, only the composition behavior.
 type fakeTxManager struct{}
@@ -25,9 +30,11 @@ func (fakeTxManager) WithinTransaction(ctx context.Context, fn func(context.Cont
 }
 
 type fakeUserRepo struct {
-	mu      sync.Mutex
-	byEmail map[string]*models.User
-	nextID  int64
+	mu            sync.Mutex
+	byEmail       map[string]*models.User
+	nextID        int64
+	createErr     error // returned as-is, in place of the normal duplicate-email check
+	getByEmailErr error
 }
 
 func newFakeUserRepo() *fakeUserRepo {
@@ -37,6 +44,10 @@ func newFakeUserRepo() *fakeUserRepo {
 func (f *fakeUserRepo) Create(ctx context.Context, u *models.User) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if f.createErr != nil {
+		return f.createErr
+	}
 
 	key := strings.ToLower(u.Email)
 	if _, exists := f.byEmail[key]; exists {
@@ -57,6 +68,10 @@ func (f *fakeUserRepo) GetByEmail(ctx context.Context, email string) (*models.Us
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	if f.getByEmailErr != nil {
+		return nil, f.getByEmailErr
+	}
+
 	u, ok := f.byEmail[strings.ToLower(email)]
 	if !ok {
 		return nil, errNotFound
@@ -70,6 +85,14 @@ type fakeAccountRepo struct {
 	byID    map[int64]*models.Account
 	byOwner map[int64]int64 // ownerID -> accountID
 	nextID  int64
+
+	createErr           error
+	getByOwnerErr       error
+	getForUpdateErrByID map[int64]error // per-account-ID override, checked before the normal lookup
+
+	updateBalanceCalls      int
+	failUpdateBalanceOnCall int // 1-indexed; 0 means never fail
+	updateBalanceErr        error
 }
 
 func newFakeAccountRepo() *fakeAccountRepo {
@@ -79,6 +102,10 @@ func newFakeAccountRepo() *fakeAccountRepo {
 func (f *fakeAccountRepo) Create(ctx context.Context, a *models.Account) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if f.createErr != nil {
+		return f.createErr
+	}
 
 	f.nextID++
 	a.ID = f.nextID
@@ -95,6 +122,10 @@ func (f *fakeAccountRepo) GetByOwnerID(ctx context.Context, ownerID int64) (*mod
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	if f.getByOwnerErr != nil {
+		return nil, f.getByOwnerErr
+	}
+
 	id, ok := f.byOwner[ownerID]
 	if !ok {
 		return nil, errNotFound
@@ -106,6 +137,10 @@ func (f *fakeAccountRepo) GetByOwnerID(ctx context.Context, ownerID int64) (*mod
 func (f *fakeAccountRepo) GetForUpdate(ctx context.Context, id int64) (*models.Account, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if err, ok := f.getForUpdateErrByID[id]; ok {
+		return nil, err
+	}
 
 	a, ok := f.byID[id]
 	if !ok {
@@ -119,6 +154,11 @@ func (f *fakeAccountRepo) UpdateBalance(ctx context.Context, id int64, balance i
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.updateBalanceCalls++
+	if f.failUpdateBalanceOnCall != 0 && f.updateBalanceCalls == f.failUpdateBalanceOnCall {
+		return f.updateBalanceErr
+	}
+
 	a, ok := f.byID[id]
 	if !ok {
 		return errNotFound
@@ -128,9 +168,10 @@ func (f *fakeAccountRepo) UpdateBalance(ctx context.Context, id int64, balance i
 }
 
 type fakeTransferRepo struct {
-	mu     sync.Mutex
-	nextID int64
-	all    []models.Transfer
+	mu        sync.Mutex
+	nextID    int64
+	all       []models.Transfer
+	createErr error
 }
 
 func newFakeTransferRepo() *fakeTransferRepo { return &fakeTransferRepo{} }
@@ -138,6 +179,10 @@ func newFakeTransferRepo() *fakeTransferRepo { return &fakeTransferRepo{} }
 func (f *fakeTransferRepo) Create(ctx context.Context, t *models.Transfer) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if f.createErr != nil {
+		return f.createErr
+	}
 
 	f.nextID++
 	t.ID = f.nextID
@@ -150,6 +195,13 @@ type fakeEntryRepo struct {
 	mu     sync.Mutex
 	nextID int64
 	all    []models.Entry
+
+	createCalls      int
+	failCreateOnCall int // 1-indexed; 0 means never fail
+	createErr        error
+
+	listErr  error
+	countErr error
 }
 
 func newFakeEntryRepo() *fakeEntryRepo { return &fakeEntryRepo{} }
@@ -157,6 +209,11 @@ func newFakeEntryRepo() *fakeEntryRepo { return &fakeEntryRepo{} }
 func (f *fakeEntryRepo) Create(ctx context.Context, e *models.Entry) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	f.createCalls++
+	if f.failCreateOnCall != 0 && f.createCalls == f.failCreateOnCall {
+		return f.createErr
+	}
 
 	f.nextID++
 	e.ID = f.nextID
@@ -168,6 +225,10 @@ func (f *fakeEntryRepo) Create(ctx context.Context, e *models.Entry) error {
 func (f *fakeEntryRepo) ListByAccountID(ctx context.Context, accountID int64, limit, offset int) ([]models.Entry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 
 	var matched []models.Entry
 	for i := len(f.all) - 1; i >= 0; i-- { // newest first, matches ORDER BY id DESC
@@ -190,6 +251,10 @@ func (f *fakeEntryRepo) CountByAccountID(ctx context.Context, accountID int64) (
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	if f.countErr != nil {
+		return 0, f.countErr
+	}
+
 	var count int64
 	for _, e := range f.all {
 		if e.AccountID == accountID {
@@ -203,6 +268,9 @@ type fakeIdempotencyRepo struct {
 	mu     sync.Mutex
 	byKey  map[string]*models.IdempotencyKey
 	nextID int64
+
+	findOrCreateErr error
+	completeErr     error
 }
 
 func newFakeIdempotencyRepo() *fakeIdempotencyRepo {
@@ -214,6 +282,10 @@ func idemKey(userID int64, key string) string { return fmt.Sprintf("%d:%s", user
 func (f *fakeIdempotencyRepo) FindOrCreate(ctx context.Context, userID int64, key, requestHash string) (*models.IdempotencyKey, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if f.findOrCreateErr != nil {
+		return nil, false, f.findOrCreateErr
+	}
 
 	k := idemKey(userID, key)
 	if existing, ok := f.byKey[k]; ok {
@@ -239,6 +311,10 @@ func (f *fakeIdempotencyRepo) Complete(ctx context.Context, id int64, status int
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	if f.completeErr != nil {
+		return f.completeErr
+	}
+
 	for _, rec := range f.byKey {
 		if rec.ID == id {
 			rec.ResponseStatus = &status
@@ -249,8 +325,13 @@ func (f *fakeIdempotencyRepo) Complete(ctx context.Context, id int64, status int
 	return errNotFound
 }
 
-type fakeTokenManager struct{}
+type fakeTokenManager struct {
+	generateErr error
+}
 
-func (fakeTokenManager) Generate(userID int64, email string) (string, time.Time, error) {
+func (f fakeTokenManager) Generate(userID int64, email string) (string, time.Time, error) {
+	if f.generateErr != nil {
+		return "", time.Time{}, f.generateErr
+	}
 	return fmt.Sprintf("token-for-%d", userID), time.Now().Add(time.Hour), nil
 }

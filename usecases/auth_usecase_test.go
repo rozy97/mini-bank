@@ -2,8 +2,10 @@ package usecases_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rozy97/mini-bank/pkg/password"
 	"github.com/rozy97/mini-bank/usecases"
 	"github.com/stretchr/testify/assert"
@@ -50,6 +52,50 @@ func TestAuthUsecase_Register_DuplicateEmail(t *testing.T) {
 	assert.ErrorIs(t, err, usecases.ErrEmailAlreadyExists)
 }
 
+func TestAuthUsecase_Register_PasswordTooLongToHash(t *testing.T) {
+	uc := newAuthUsecase()
+
+	// bcrypt refuses passwords over 72 bytes; this exercises the hasher.Hash
+	// error path without needing a fake hasher.
+	_, err := uc.Register(context.Background(), usecases.RegisterInput{
+		Name:     "Jane Doe",
+		Email:    "jane@example.com",
+		Password: strings.Repeat("a", 100),
+	})
+	require.Error(t, err)
+}
+
+func TestAuthUsecase_Register_UserRepoGenericError(t *testing.T) {
+	userRepo := newFakeUserRepo()
+	userRepo.createErr = errBoom // not a *pgconn.PgError, so isUniqueViolation is false
+	uc := usecases.NewAuthUsecase(userRepo, newFakeAccountRepo(), fakeTxManager{}, password.NewBcryptHasher(), fakeTokenManager{})
+
+	_, err := uc.Register(context.Background(), usecases.RegisterInput{Name: "Jane Doe", Email: "jane@example.com", Password: "supersecret123"})
+	assert.ErrorIs(t, err, errBoom)
+	assert.NotErrorIs(t, err, usecases.ErrEmailAlreadyExists)
+}
+
+func TestAuthUsecase_Register_UserRepoDifferentConstraintViolation(t *testing.T) {
+	userRepo := newFakeUserRepo()
+	// A *pgconn.PgError whose code isn't 23505 (unique_violation) must not be
+	// swallowed as ErrEmailAlreadyExists.
+	userRepo.createErr = &pgconn.PgError{Code: "23503"}
+	uc := usecases.NewAuthUsecase(userRepo, newFakeAccountRepo(), fakeTxManager{}, password.NewBcryptHasher(), fakeTokenManager{})
+
+	_, err := uc.Register(context.Background(), usecases.RegisterInput{Name: "Jane Doe", Email: "jane@example.com", Password: "supersecret123"})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, usecases.ErrEmailAlreadyExists)
+}
+
+func TestAuthUsecase_Register_AccountRepoError(t *testing.T) {
+	accountRepo := newFakeAccountRepo()
+	accountRepo.createErr = errBoom
+	uc := usecases.NewAuthUsecase(newFakeUserRepo(), accountRepo, fakeTxManager{}, password.NewBcryptHasher(), fakeTokenManager{})
+
+	_, err := uc.Register(context.Background(), usecases.RegisterInput{Name: "Jane Doe", Email: "jane@example.com", Password: "supersecret123"})
+	assert.ErrorIs(t, err, errBoom)
+}
+
 func TestAuthUsecase_Login_Success(t *testing.T) {
 	uc := newAuthUsecase()
 	ctx := context.Background()
@@ -79,4 +125,26 @@ func TestAuthUsecase_Login_UnknownEmail(t *testing.T) {
 
 	_, err := uc.Login(context.Background(), usecases.LoginInput{Email: "ghost@example.com", Password: "whatever123"})
 	assert.ErrorIs(t, err, usecases.ErrInvalidCredentials)
+}
+
+func TestAuthUsecase_Login_UserRepoGenericError(t *testing.T) {
+	userRepo := newFakeUserRepo()
+	userRepo.getByEmailErr = errBoom
+	uc := usecases.NewAuthUsecase(userRepo, newFakeAccountRepo(), fakeTxManager{}, password.NewBcryptHasher(), fakeTokenManager{})
+
+	_, err := uc.Login(context.Background(), usecases.LoginInput{Email: "jane@example.com", Password: "whatever123"})
+	assert.ErrorIs(t, err, errBoom)
+	assert.NotErrorIs(t, err, usecases.ErrInvalidCredentials)
+}
+
+func TestAuthUsecase_Login_TokenGenerationError(t *testing.T) {
+	userRepo := newFakeUserRepo()
+	uc := usecases.NewAuthUsecase(userRepo, newFakeAccountRepo(), fakeTxManager{}, password.NewBcryptHasher(), fakeTokenManager{generateErr: errBoom})
+	ctx := context.Background()
+
+	_, err := uc.Register(ctx, usecases.RegisterInput{Name: "Jane Doe", Email: "jane@example.com", Password: "supersecret123"})
+	require.NoError(t, err)
+
+	_, err = uc.Login(ctx, usecases.LoginInput{Email: "jane@example.com", Password: "supersecret123"})
+	assert.ErrorIs(t, err, errBoom)
 }
