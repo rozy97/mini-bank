@@ -43,12 +43,22 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4318
       OTEL_EXPORTER_OTLP_INSECURE: "true"
     ports:
-      - "${PORT:-8080}:8080"
+      - "${PORT:-8080}:8080" # exposed directly too, for local debugging; nginx is the intended front door
     depends_on:
       postgres:
         condition: service_healthy
       jaeger:
         condition: service_started
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - app
 
 volumes:
   postgres_data:

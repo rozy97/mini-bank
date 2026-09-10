@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,15 @@ type Handlers struct {
 
 func NewRouter(h Handlers, tokenVerifier TokenVerifier, serviceName string) *gin.Engine {
 	r := gin.New()
+
+	// Trust X-Forwarded-For / X-Real-IP only from private-network peers (the
+	// nginx container in front of this service), not from the public
+	// internet — otherwise c.ClientIP() would just echo back whatever a
+	// client claims. Gin refuses to start without an explicit choice here.
+	if err := r.SetTrustedProxies([]string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}); err != nil {
+		panic(fmt.Errorf("set trusted proxies: %w", err))
+	}
+
 	// otelgin starts the request span (and puts it in context) before
 	// Recovery and RequestLogger run, so both can read the trace ID and
 	// Recovery can record a panic onto the span.

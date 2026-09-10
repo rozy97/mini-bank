@@ -11,6 +11,7 @@ A small internal funds-transfer API: register, log in, check your balance, trans
 - **Swagger (swaggo)** — API docs
 - **OpenTelemetry** + **Jaeger** — distributed tracing (HTTP and DB spans)
 - **log/slog** — structured JSON logging, correlated to traces
+- **nginx** — reverse proxy in front of the API
 
 ## Architecture
 
@@ -50,6 +51,10 @@ See `migrations/001_initial_schema.sql`.
 - **Logging** (`pkg/logging`): structured JSON on stdout via `log/slog`, level controlled by `LOG_LEVEL` (`debug`/`info`/`warn`/`error`, default `info`; `debug` also adds `source` file:line). Every request/error log line carries `service`/`version`/`env` and, whenever the request has an active span, `trace_id`/`span_id` — so a log line and its distributed trace can always be cross-referenced. A panic in a handler (`handler.Recovery`, replacing `gin.Recovery()`) is logged with its stack trace and turned into the same JSON error envelope every other failure returns, instead of a bare connection reset.
 - **Tracing** (`pkg/telemetry`, OpenTelemetry): every HTTP request gets a span (`otelgin`), and every SQL statement executed within it gets a child span (`otelsql` wrapping the pgx driver) — so a trace shows exactly which queries a request ran and how long each took. Spans are always generated (so `trace_id` is always available for log correlation and is echoed back as the `X-Request-Id` response header); they're only shipped to a collector when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so running without one configured is always safe. `docker compose up` points it at a bundled Jaeger instance — see below.
 
+## Reverse proxy
+
+`nginx` (`nginx/default.conf`) sits in front of the API on port 80: it sets baseline security headers, gzips JSON responses, rate-limits the unauthenticated `/api/v1/auth/*` endpoints (5 req/s per IP, burst 10, `429` once exceeded), and forwards `X-Real-IP`/`X-Forwarded-For`/`X-Forwarded-Proto` so the app logs the real client IP. Gin is configured to trust `X-Forwarded-For` only from private-network peers (`handler.NewRouter`'s `SetTrustedProxies` call) — i.e. nginx itself, not whatever a public client claims. The app's own port stays published too (`:8080`) for direct local debugging; nginx (`:80`) is the intended front door.
+
 ## Running it
 
 ```bash
@@ -57,9 +62,9 @@ cp .env.example .env   # then set a real JWT_SECRET
 docker compose up --build
 ```
 
-This starts Postgres, [Jaeger](https://www.jaegertracing.io/) (with `migrations/` mounted into `/docker-entrypoint-initdb.d`, so the schema applies automatically on first boot), and the API on `http://localhost:8080`.
+This starts Postgres, [Jaeger](https://www.jaegertracing.io/) (with `migrations/` mounted into `/docker-entrypoint-initdb.d`, so the schema applies automatically on first boot), the API, and nginx in front of it on `http://localhost`.
 
-API docs: `http://localhost:8080/docs` — try `POST /auth/login`, and its `access_token` is fed straight into the Authorize dialog, so the following calls (`GET /accounts/me/balance`, `POST /transfers`, ...) are authorized automatically with no copy/pasting. (The raw OpenAPI spec is also served at `/swagger/doc.json`, and swaggo's own UI at `/swagger/index.html`, without the auto-login behavior.)
+API docs: `http://localhost/docs` — try `POST /auth/login`, and its `access_token` is fed straight into the Authorize dialog, so the following calls (`GET /accounts/me/balance`, `POST /transfers`, ...) are authorized automatically with no copy/pasting. (The raw OpenAPI spec is also served at `/swagger/doc.json`, and swaggo's own UI at `/swagger/index.html`, without the auto-login behavior.)
 Traces: `http://localhost:16686` (Jaeger UI) — pick service `mini-bank`.
 Health check: `GET /healthz`
 
@@ -99,14 +104,16 @@ All responses are wrapped as `{"success": bool, "data": ..., "meta": ..., "error
 
 ### Example
 
+Via nginx on port 80 (or swap `localhost` for `localhost:8080` to bypass it):
+
 ```bash
-curl -X POST localhost:8080/api/v1/auth/register -H 'Content-Type: application/json' \
+curl -X POST localhost/api/v1/auth/register -H 'Content-Type: application/json' \
   -d '{"name":"Alice","email":"alice@example.com","password":"password123"}'
 
-TOKEN=$(curl -X POST localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' \
+TOKEN=$(curl -X POST localhost/api/v1/auth/login -H 'Content-Type: application/json' \
   -d '{"email":"alice@example.com","password":"password123"}' | jq -r .data.access_token)
 
-curl -X POST localhost:8080/api/v1/transfers \
+curl -X POST localhost/api/v1/transfers \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -H 'Idempotency-Key: <uuid>' \
   -d '{"to_account_id":2,"amount":1000000,"description":"rent"}'
 ```
