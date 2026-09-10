@@ -1,4 +1,4 @@
-.PHONY: run build test lint swagger tidy docker-up docker-down docker-logs
+.PHONY: run build test test-integration lint swagger tidy docker-up docker-down docker-logs
 
 APP_NAME := mini-bank
 
@@ -10,6 +10,11 @@ build:
 
 test:
 	go test ./... -race -cover
+
+# Spins up a real Postgres via testcontainers-go and exercises the full
+# HTTP-to-database stack, including concurrent transfers. Requires Docker.
+test-integration:
+	go test -tags=integration ./test/integration/... -race -v -timeout 5m
 
 vet:
 	go vet ./...

@@ -24,7 +24,9 @@ repositories/  Postgres implementations of those interfaces (sqlx)
 models/        Plain domain structs shared by repositories and usecases
 pkg/           Infrastructure helpers: bcrypt hashing, JWT issuing/verification, logging, tracing
 config/        Environment-based configuration
-cmd/           main.go: wiring and graceful shutdown
+app/           Builds the full dependency graph into an http.Handler; shared by cmd/main.go and the integration tests
+cmd/           main.go: process wiring and graceful shutdown
+test/          test/integration: full-stack tests against a real Postgres (see Tests below)
 ```
 
 The usecase layer owns the interfaces it depends on (`usecases/ports.go`) rather than importing concrete repository types — `repositories.AccountRepository` just happens to satisfy `usecases.AccountRepository` structurally. This keeps business logic testable without a database: `usecases/*_test.go` runs against in-memory fakes.
@@ -79,10 +81,11 @@ make run
 ### Tests
 
 ```bash
-make test
+make test              # unit tests: usecases against in-memory fakes, no database needed
+make test-integration  # integration tests: real HTTP + real Postgres (needs Docker)
 ```
 
-Usecase tests run against in-memory fakes, so no database is required.
+`test/integration/` (build-tagged `integration`, so it's excluded from `make test` / `go test ./...`) spins up Postgres via [testcontainers-go](https://golang.testcontainers.org/), applies `migrations/001_initial_schema.sql`, and drives the real router — `app.NewRouter`, the same constructor `cmd/main.go` uses — over real HTTP. It's what the fake-backed usecase tests structurally can't cover: whether the `SELECT ... FOR UPDATE` locking and idempotency-key logic actually hold up against a real database and real concurrency (`concurrency_test.go` fires dozens of transfers between the same two accounts concurrently and asserts the total balance is conserved and nothing deadlocks). CI runs both jobs.
 
 ### Regenerating Swagger docs
 
