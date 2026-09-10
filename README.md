@@ -2,6 +2,8 @@
 
 A small internal funds-transfer API: register, log in, check your balance, transfer money to another account, and page through your transaction history. Built with Go, Gin, and Postgres to demonstrate clean architecture, safe concurrent balance updates, and idempotent transfers.
 
+> Built with AI assistance (Claude Code). See [AI-USAGE.md](AI-USAGE.md) for what that involved.
+
 ## Stack
 
 - **Go** + **Gin** — HTTP layer
