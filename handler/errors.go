@@ -7,6 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rozy97/mini-bank/usecases"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // handleError maps a usecase error to an HTTP response. Unrecognized errors
@@ -30,7 +32,11 @@ func handleError(c *gin.Context, err error) {
 		errors.Is(err, usecases.ErrIdempotencyKeyInProgress):
 		fail(c, http.StatusConflict, "IDEMPOTENCY_KEY_CONFLICT", err.Error())
 	default:
-		slog.Error("unhandled error", "error", err, "path", c.Request.URL.Path)
+		slog.ErrorContext(c.Request.Context(), "unhandled error", "error", err, "path", c.Request.URL.Path)
+		if span := trace.SpanFromContext(c.Request.Context()); span.IsRecording() {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
 		fail(c, http.StatusInternalServerError, "INTERNAL_ERROR", "an unexpected error occurred")
 	}
 }

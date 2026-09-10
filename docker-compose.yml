@@ -17,12 +17,20 @@ services:
       timeout: 5s
       retries: 10
 
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0
+    restart: unless-stopped
+    ports:
+      - "16686:16686" # UI: http://localhost:16686
+      - "4318:4318"   # OTLP/HTTP receiver
+
   app:
     build: .
     restart: unless-stopped
     environment:
       APP_ENV: ${APP_ENV:-production}
       PORT: ${PORT:-8080}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: ${DB_USER:-postgres}
@@ -31,11 +39,16 @@ services:
       DB_SSLMODE: disable
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
       JWT_TTL: ${JWT_TTL:-24h}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-mini-bank}
+      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4318
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
     ports:
       - "${PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
 volumes:
   postgres_data:

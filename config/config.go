@@ -15,8 +15,10 @@ type Config struct {
 	AppEnv          string
 	Port            string
 	ShutdownTimeout time.Duration
+	LogLevel        string
 	DB              DBConfig
 	JWT             JWTConfig
+	OTel            OTelConfig
 }
 
 type DBConfig struct {
@@ -36,6 +38,16 @@ type JWTConfig struct {
 	TTL    time.Duration
 }
 
+// OTelConfig configures trace export. Spans are always generated (so
+// trace/span IDs are available for log correlation even with tracing
+// "disabled"); they're only shipped to a collector when ExporterEndpoint is
+// set, so running without one configured is always safe.
+type OTelConfig struct {
+	ServiceName      string
+	ExporterEndpoint string
+	Insecure         bool
+}
+
 func (c DBConfig) DSN() string {
 	return fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
@@ -53,6 +65,7 @@ func Load() (*Config, error) {
 		AppEnv:          getEnv("APP_ENV", "development"),
 		Port:            getEnv("PORT", "8080"),
 		ShutdownTimeout: getEnvDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
+		LogLevel:        getEnv("LOG_LEVEL", "info"),
 		DB: DBConfig{
 			Host:            getEnv("DB_HOST", "localhost"),
 			Port:            getEnv("DB_PORT", "5432"),
@@ -67,6 +80,11 @@ func Load() (*Config, error) {
 		JWT: JWTConfig{
 			Secret: getEnv("JWT_SECRET", ""),
 			TTL:    getEnvDuration("JWT_TTL", 24*time.Hour),
+		},
+		OTel: OTelConfig{
+			ServiceName:      getEnv("OTEL_SERVICE_NAME", "mini-bank"),
+			ExporterEndpoint: getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+			Insecure:         getEnvBool("OTEL_EXPORTER_OTLP_INSECURE", true),
 		},
 	}
 
@@ -94,6 +112,18 @@ func getEnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
 }
 
 func getEnvDuration(key string, fallback time.Duration) time.Duration {

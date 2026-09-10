@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 type Handlers struct {
@@ -14,9 +15,18 @@ type Handlers struct {
 	Transfer *TransferHandler
 }
 
-func NewRouter(h Handlers, tokenVerifier TokenVerifier) *gin.Engine {
+func NewRouter(h Handlers, tokenVerifier TokenVerifier, serviceName string) *gin.Engine {
 	r := gin.New()
-	r.Use(gin.Recovery(), RequestLogger())
+	// otelgin starts the request span (and puts it in context) before
+	// Recovery and RequestLogger run, so both can read the trace ID and
+	// Recovery can record a panic onto the span.
+	r.Use(
+		otelgin.Middleware(serviceName, otelgin.WithFilter(func(req *http.Request) bool {
+			return req.URL.Path != healthCheckPath
+		})),
+		Recovery(),
+		RequestLogger(),
+	)
 
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
