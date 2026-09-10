@@ -5,6 +5,7 @@ package integration_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -80,6 +81,20 @@ func TestTransfer_MissingIdempotencyKey(t *testing.T) {
 	resp, body := doRequest(t, http.MethodPost, "/api/v1/transfers", fromToken, map[string]any{
 		"to_account_id": toAccountID, "amount": 1_000,
 	}, nil)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Equal(t, "INVALID_REQUEST", body.Error.Code)
+}
+
+func TestTransfer_IdempotencyKeyTooLong(t *testing.T) {
+	_, _, fromToken := registerUser(t, "longkey-from")
+	_, toAccountID, _ := registerUser(t, "longkey-to")
+
+	// One over the idempotency_keys.idempotency_key VARCHAR(255) column;
+	// must be rejected before ever reaching the database as a clean 400,
+	// not surface as an opaque 500.
+	resp, body := doRequest(t, http.MethodPost, "/api/v1/transfers", fromToken, map[string]any{
+		"to_account_id": toAccountID, "amount": 1_000,
+	}, map[string]string{"Idempotency-Key": strings.Repeat("k", 256)})
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	assert.Equal(t, "INVALID_REQUEST", body.Error.Code)
 }

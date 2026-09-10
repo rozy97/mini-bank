@@ -26,7 +26,9 @@ func handleError(c *gin.Context, err error) {
 		fail(c, http.StatusUnprocessableEntity, "INSUFFICIENT_BALANCE", err.Error())
 	case errors.Is(err, usecases.ErrSameAccountTransfer),
 		errors.Is(err, usecases.ErrInvalidAmount),
-		errors.Is(err, usecases.ErrIdempotencyKeyRequired):
+		errors.Is(err, usecases.ErrIdempotencyKeyRequired),
+		errors.Is(err, usecases.ErrIdempotencyKeyTooLong),
+		errors.Is(err, usecases.ErrPasswordTooLong):
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 	case errors.Is(err, usecases.ErrIdempotencyKeyConflict),
 		errors.Is(err, usecases.ErrIdempotencyKeyInProgress):

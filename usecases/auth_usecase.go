@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/rozy97/mini-bank/models"
 )
 
@@ -44,6 +46,9 @@ func NewAuthUsecase(
 func (u *AuthUsecase) Register(ctx context.Context, in RegisterInput) (*RegisterOutput, error) {
 	hash, err := u.hasher.Hash(in.Password)
 	if err != nil {
+		if errors.Is(err, bcrypt.ErrPasswordTooLong) {
+			return nil, ErrPasswordTooLong
+		}
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
 

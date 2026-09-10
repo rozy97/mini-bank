@@ -132,11 +132,13 @@ Error responses you'll actually hit while testing:
 | Situation | Status | `error.code` |
 |---|---|---|
 | Missing/invalid bearer token | 401 | `UNAUTHORIZED` |
-| Duplicate email on register | 409 | `EMAIL_ALREADY_EXISTS` |
+| Duplicate email on register (case-insensitive) | 409 | `EMAIL_ALREADY_EXISTS` |
+| Register: invalid email, name under 2 chars, password under 8 chars, or missing field | 400 | `INVALID_REQUEST` |
+| Register: password over 72 bytes (bcrypt's hard limit) | 400 | `INVALID_REQUEST` |
 | Wrong password / unknown email on login | 401 | `INVALID_CREDENTIALS` |
 | Recipient account doesn't exist | 404 | `ACCOUNT_NOT_FOUND` |
 | Amount exceeds balance | 422 | `INSUFFICIENT_BALANCE` |
-| `to_account_id` equals your own account, amount ≤ 0, or missing `Idempotency-Key` | 400 | `INVALID_REQUEST` |
+| `to_account_id` missing/zero/equal to your own account, amount ≤ 0 or non-integer, description over 255 chars, or missing/empty/over-255-char `Idempotency-Key` | 400 | `INVALID_REQUEST` |
 | Idempotency key reused with a different body, or a concurrent attempt with the same key is still in flight | 409 | `IDEMPOTENCY_KEY_CONFLICT` |
 
 ### Get paginated history
@@ -157,7 +159,7 @@ All read by `config.Load()` (`config/config.go`); see `.env.example` for a ready
 
 | Variable | Default | Notes |
 |---|---|---|
-| `APP_ENV` | `development` | `production` switches Gin to release mode |
+| `APP_ENV` | `development` | `production` switches Gin to release mode. `docker-compose.yml` always hardcodes `production` for the containerized app regardless of `.env` — see the comment there for why |
 | `PORT` | `8080` | |
 | `SHUTDOWN_TIMEOUT` | `10s` | How long graceful shutdown waits for in-flight requests |
 | `LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error`; `debug` also adds `source` file:line |
@@ -212,7 +214,9 @@ See `migrations/001_initial_schema.sql`.
 
 ## Reverse proxy
 
-`nginx` (`nginx/default.conf`) sits in front of the API on port 80: it sets baseline security headers, gzips JSON responses, rate-limits the unauthenticated `/api/v1/auth/*` endpoints (5 req/s per IP, burst 10, `429` once exceeded), and forwards `X-Real-IP`/`X-Forwarded-For`/`X-Forwarded-Proto` so the app logs the real client IP. Gin is configured to trust `X-Forwarded-For` only from private-network peers (`handler.NewRouter`'s `SetTrustedProxies` call) — i.e. nginx itself, not whatever a public client claims. The app's own port stays published too (`:8080`) for direct local debugging; nginx (`:80`) is the intended front door.
+`nginx` (`nginx/default.conf`) sits in front of the API on port 80 (both IPv4 and IPv6): it sets baseline security headers, gzips JSON responses, rate-limits the unauthenticated `/api/v1/auth/*` endpoints (5 req/s per IP, burst 10, `429` once exceeded), and forwards `X-Real-IP`/`X-Forwarded-For`/`X-Forwarded-Proto` so the app logs the real client IP. Gin is configured to trust `X-Forwarded-For` only from private-network peers (`handler.NewRouter`'s `SetTrustedProxies` call) — i.e. nginx itself, not whatever a public client claims. The app's own port stays published too (`:8080`) for direct local debugging; nginx (`:80`) is the intended front door.
+
+The config is mounted read-only (defense in depth — nginx never needs write access to it), which makes the stock image's own startup scripts log an expected informational line about that; `NGINX_ENTRYPOINT_QUIET_LOGS=1` (set in `docker-compose.yml`) quiets it, per the image's own documented mechanism for this exact case.
 
 ## Testing
 

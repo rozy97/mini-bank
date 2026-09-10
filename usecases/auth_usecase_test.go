@@ -62,7 +62,15 @@ func TestAuthUsecase_Register_PasswordTooLongToHash(t *testing.T) {
 		Email:    "jane@example.com",
 		Password: strings.Repeat("a", 100),
 	})
-	require.Error(t, err)
+	assert.ErrorIs(t, err, usecases.ErrPasswordTooLong, "must map to the client-error sentinel, not surface as an opaque internal error")
+}
+
+func TestAuthUsecase_Register_GenericHashError(t *testing.T) {
+	uc := usecases.NewAuthUsecase(newFakeUserRepo(), newFakeAccountRepo(), fakeTxManager{}, fakePasswordHasher{hashErr: errBoom}, fakeTokenManager{})
+
+	_, err := uc.Register(context.Background(), usecases.RegisterInput{Name: "Jane Doe", Email: "jane@example.com", Password: "supersecret123"})
+	assert.ErrorIs(t, err, errBoom)
+	assert.NotErrorIs(t, err, usecases.ErrPasswordTooLong, "a non-bcrypt hasher error must not be mislabeled as password-too-long")
 }
 
 func TestAuthUsecase_Register_UserRepoGenericError(t *testing.T) {

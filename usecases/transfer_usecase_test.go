@@ -2,6 +2,7 @@ package usecases_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/rozy97/mini-bank/models"
@@ -128,6 +129,32 @@ func TestTransferUsecase_MissingIdempotencyKey(t *testing.T) {
 		RequestHash: "hash-1",
 	})
 	assert.ErrorIs(t, err, usecases.ErrIdempotencyKeyRequired)
+}
+
+func TestTransferUsecase_IdempotencyKeyTooLong(t *testing.T) {
+	s := newTransferTestSetup(t)
+
+	_, err := s.uc.Transfer(context.Background(), usecases.TransferInput{
+		FromUserID:     s.fromUserID,
+		ToAccountID:    s.toAccount,
+		Amount:         1_000,
+		IdempotencyKey: strings.Repeat("k", 256), // one over the accounts.idempotency_key VARCHAR(255) column
+		RequestHash:    "hash-1",
+	})
+	assert.ErrorIs(t, err, usecases.ErrIdempotencyKeyTooLong)
+}
+
+func TestTransferUsecase_IdempotencyKeyExactlyAtLimit(t *testing.T) {
+	s := newTransferTestSetup(t)
+
+	_, err := s.uc.Transfer(context.Background(), usecases.TransferInput{
+		FromUserID:     s.fromUserID,
+		ToAccountID:    s.toAccount,
+		Amount:         1_000,
+		IdempotencyKey: strings.Repeat("k", 255), // exactly at the limit must be accepted
+		RequestHash:    "hash-1",
+	})
+	require.NoError(t, err)
 }
 
 func TestTransferUsecase_IdempotentRetry_ReturnsSameResult(t *testing.T) {

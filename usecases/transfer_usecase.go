@@ -15,6 +15,13 @@ import (
 // any transport-layer dependency.
 const transferSuccessStatus = 201
 
+// maxIdempotencyKeyLength matches idempotency_keys.idempotency_key's
+// VARCHAR(255) column (migrations/001_initial_schema.sql). Rejecting an
+// over-length key here, before it ever reaches the database, turns what
+// would otherwise be an opaque 500 (a Postgres "value too long" error) into
+// a clear 400 — this is a client mistake, not a server fault.
+const maxIdempotencyKeyLength = 255
+
 type TransferUsecase struct {
 	accountRepo     AccountRepository
 	transferRepo    TransferRepository
@@ -49,6 +56,9 @@ func (u *TransferUsecase) Transfer(ctx context.Context, in TransferInput) (*Tran
 	}
 	if in.IdempotencyKey == "" {
 		return nil, ErrIdempotencyKeyRequired
+	}
+	if len(in.IdempotencyKey) > maxIdempotencyKeyLength {
+		return nil, ErrIdempotencyKeyTooLong
 	}
 
 	var output *TransferOutput
